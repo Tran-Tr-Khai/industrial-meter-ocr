@@ -1,19 +1,21 @@
 """
 Giai đoạn 1: Data Cleaning & Standardization
 =============================================
-Script này đổi tên toàn bộ ảnh + nhãn OBB (.txt) sang định dạng chuẩn:
-  train_0000.jpg  <->  train_0000.txt
-  valid_0000.jpg  <->  valid_0000.txt
-  test_0000.jpg   <->  test_0000.txt
+Script này thực hiện 2 bước chuẩn hoá cho dataset YOLO single-class:
 
-LƯU Ý QUAN TRỌNG:
-  - Format nhãn trong dataset này là OBB (Oriented Bounding Box),
-    mỗi dòng có 9 giá trị: class x1 y1 x2 y2 x3 y3 x4 y4
-  - Script KHÔNG sửa nội dung file nhãn, chỉ đổi tên.
+  BƯỚC 1 — Đổi tên file sang định dạng chuẩn:
+    train_0000.jpg  <->  train_0000.txt
+    valid_0000.jpg  <->  valid_0000.txt
+    test_0000.jpg   <->  test_0000.txt
+
+  BƯỚC 2 — Remap class ID về 0 (single-class mode):
+    Mọi annotation trong .txt đều được đặt class = 0 ("display"),
+    khớp với data.yaml (nc: 1) và plan.md E0 Baseline.
+
   - Ảnh không có nhãn tương ứng sẽ bị BỎ QUA và in cảnh báo.
 
 Chạy: python 1_clean_data.py
-      hoặc: python 1_clean_data.py --dry-run  (xem trước, không đổi tên thật)
+      hoặc: python 1_clean_data.py --dry-run  (xem trước, không thay đổi thật)
 """
 
 import os
@@ -88,17 +90,70 @@ def standardize_filenames(dry_run: bool = False) -> None:
 
     print(f"{'='*60}")
     print(f"  Tổng cộng: {grand_total} files đã được chuẩn hóa.")
-    print(f"  Bước tiếp theo: Sửa Data/data.yaml rồi chạy 2_train_yolo.py")
+    print(f"  Bước tiếp theo: chạy 2_train_yolo.py")
+    print(f"{'='*60}")
+
+
+def remap_class_ids(dry_run: bool = False) -> None:
+    """
+    Bước 2: Đặt lại class ID = 0 cho toàn bộ file nhãn.
+    Lý do: data.yaml có nc=1 (single-class mode), class ID gốc != 0
+    sẽ bị Ultralytics bỏ qua vì vượt quá nc.
+    """
+    mode = "[DRY-RUN] " if dry_run else ""
+    print(f"\n{'='*60}")
+    print(f"  {mode}Remap class IDs → 0 (single-class mode)...")
+    print(f"{'='*60}\n")
+
+    for sub in SUB_DIRS:
+        lbl_dir = os.path.join(BASE_DIR, sub, "labels")
+        if not os.path.isdir(lbl_dir):
+            print(f"  [SKIP] Không tìm thấy: {lbl_dir}\n")
+            continue
+
+        txt_files = sorted(f for f in os.listdir(lbl_dir) if f.endswith(".txt"))
+        count_changed = 0
+
+        for fname in txt_files:
+            fpath = os.path.join(lbl_dir, fname)
+            with open(fpath, "r") as f:
+                lines = f.readlines()
+
+            new_lines = []
+            changed = False
+            for line in lines:
+                parts = line.strip().split()
+                if len(parts) >= 5 and parts[0] != "0":
+                    parts[0] = "0"
+                    new_lines.append(" ".join(parts) + "\n")
+                    changed = True
+                else:
+                    new_lines.append(line)
+
+            if changed:
+                if not dry_run:
+                    with open(fpath, "w") as f:
+                        f.writelines(new_lines)
+                count_changed += 1
+
+        status = "[DRY-RUN]" if dry_run else "OK"
+        print(f"  [{status}] '{sub}': {count_changed}/{len(txt_files)} files cập nhật class ID → 0\n")
+
+    print(f"{'='*60}")
+    print(f"  Remap hoàn tất. Mọi annotation đã là class 0 ('display').")
     print(f"{'='*60}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Chuẩn hóa tên file ảnh + nhãn YOLO-OBB")
+    parser = argparse.ArgumentParser(
+        description="Chuẩn hóa tên file ảnh + nhãn YOLO (single-class)"
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Xem trước kết quả mà không thực sự đổi tên file"
+        help="Xem trước kết quả mà không thực sự thay đổi file"
     )
     args = parser.parse_args()
 
     standardize_filenames(dry_run=args.dry_run)
+    remap_class_ids(dry_run=args.dry_run)

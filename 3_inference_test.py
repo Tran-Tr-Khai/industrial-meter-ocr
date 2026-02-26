@@ -1,21 +1,21 @@
 """
-Giai đoạn 4: Inference & Crop ảnh (OBB)
-=========================================
-Load model OBB đã train, chạy dự đoán, vẽ bounding box NGHIÊNG (OBB)
-và cắt crop ảnh thẳng (axis-aligned crop) để dùng cho OCR.
+Giai đoạn 3: Inference & Crop ảnh
+===================================
+Load model đã train, chạy dự đoán, vẽ bounding box và cắt crop ảnh
+để dùng cho OCR ở bước sau.
 
 Điều kiện tiên quyết:
   - Đã chạy xong 2_train_yolo.py -> best.pt đã có trong:
     runs/detect/meter_model/weights/best.pt
 
 Chạy:
-  # Thử nhanh 1 ảnh
+  # Thử nhanh 1 ảnh (lấy ảnh đầu tiên trong test/)
   python 3_inference_test.py
 
   # Batch toàn bộ tập test
   python 3_inference_test.py --batch
 
-  # Chỉ định ảnh khác
+  # Chỉ định ảnh cụ thể
   python 3_inference_test.py --img ./Data/test/images/test_0005.jpg
 """
 
@@ -24,7 +24,6 @@ import os
 import sys
 
 import cv2
-import numpy as np
 from ultralytics import YOLO
 
 
@@ -37,7 +36,7 @@ CONF_THRESH  = 0.25               # Ngưỡng confidence tối thiểu
 
 
 def predict_single(model: YOLO, img_path: str, save_annotated: bool = True) -> None:
-    """Dự đoán 1 ảnh, vẽ OBB polygon, cắt axis-aligned crop, lưu file."""
+    """Dự đoán 1 ảnh, vẽ bounding box, cắt crop, lưu file."""
     if not os.path.isfile(img_path):
         print(f"[ERROR] Không tìm thấy ảnh: {img_path}")
         return
@@ -54,37 +53,34 @@ def predict_single(model: YOLO, img_path: str, save_annotated: bool = True) -> N
     crop_count = 0
 
     for result in results:
-        # OBB result: result.obb.xyxyxyxy  ->  (N, 4, 2)  float32 tensor
-        if result.obb is None or len(result.obb) == 0:
+        if result.boxes is None or len(result.boxes) == 0:
             print(f"  [INFO] Không phát hiện đối tượng nào trong: {img_path}")
             continue
 
-        # Tọa độ 4 đỉnh polygon (pixel)
-        polys  = result.obb.xyxyxyxy.cpu().numpy()   # (N, 4, 2)
-        confs  = result.obb.conf.cpu().numpy()        # (N,)
-        clsids = result.obb.cls.cpu().numpy().astype(int)  # (N,)
+        # Tọa độ axis-aligned bounding box (pixel)
+        boxes  = result.boxes.xyxy.cpu().numpy()    # (N, 4)  [x1 y1 x2 y2]
+        confs  = result.boxes.conf.cpu().numpy()    # (N,)
+        clsids = result.boxes.cls.cpu().numpy().astype(int)  # (N,)
 
         class_names = result.names  # dict {id: name}
 
-        for i, (poly, conf, cls_id) in enumerate(zip(polys, confs, clsids)):
+        for i, (box, conf, cls_id) in enumerate(zip(boxes, confs, clsids)):
+            x1, y1, x2, y2 = box.astype(int)
             cls_name = class_names.get(cls_id, str(cls_id))
             label    = f"{cls_name} {conf:.2f}"
 
-            # ── 1. Vẽ OBB polygon lên ảnh gốc ──────────────────────────────
-            pts = poly.astype(np.int32).reshape((-1, 1, 2))
-            cv2.polylines(img, [pts], isClosed=True, color=(0, 255, 0), thickness=2)
-            x_text = int(poly[:, 0].min())
-            y_text = int(poly[:, 1].min()) - 8
-            cv2.putText(img, label, (x_text, max(y_text, 12)),
+            # ── 1. Vẽ bounding box lên ảnh gốc ─────────────────────────────
+            cv2.rectangle(img, (x1, y1), (x2, y2), color=(0, 255, 0), thickness=2)
+            cv2.putText(img, label, (x1, max(y1 - 8, 12)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-            # ── 2. Cắt axis-aligned crop (dùng cho OCR) ─────────────────────
-            x1 = max(0, int(poly[:, 0].min()))
-            y1 = max(0, int(poly[:, 1].min()))
-            x2 = min(img.shape[1], int(poly[:, 0].max()))
-            y2 = min(img.shape[0], int(poly[:, 1].max()))
+            # ── 2. Crop vùng hiển thị kWh (dùng cho OCR) ───────────────────
+            x1c = max(0, x1)
+            y1c = max(0, y1)
+            x2c = min(img.shape[1], x2)
+            y2c = min(img.shape[0], y2)
 
-            crop = img[y1:y2, x1:x2]
+            crop = img[y1c:y2c, x1c:x2c]
             crop_path = os.path.join(CROP_OUT_DIR, f"{basename}_crop_{crop_count:02d}.jpg")
             cv2.imwrite(crop_path, crop)
             print(f"  [CROP] {cls_name} ({conf:.2f}) -> lưu tại: {crop_path}")
