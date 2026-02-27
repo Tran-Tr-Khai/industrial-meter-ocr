@@ -1,0 +1,36 @@
+# E4 - Orientation Robustness
+# ============================
+# Test rotation augmentation to handle upside-down meters.
+# If rotation augmentation helps → no need for OBB.
+# If not → consider OBB detection.
+
+experiment:
+  name: "E4 - Orientation Robustness"
+  description: >
+    Test if rotation augmentation can handle inverted/rotated meter images
+    instead of requiring Oriented Bounding Box (OBB) detection.
+  hypothesis: >
+    If rotation augmentation improves mAP on rotated test images,
+    standard BBox + augmentation is sufficient (no need for OBB).
+
+training:
+  model: "yolov8n.pt"
+  epochs: 100
+  imgsz: 640
+  batch: 16
+  patience: 20
+  single_cls: true
+  seed: 42
+
+augmentation:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  degrees: 45.0      # Strong rotation for orientation robustness
+  translate: 0.1
+  scale: 0.5
+  shear: 5.0
+  perspective: 0.001
+  flipud: 0.5        # Flip up-down to simulate inverted meters
+  fliplr: 0.5
+  mosaic: 1.0

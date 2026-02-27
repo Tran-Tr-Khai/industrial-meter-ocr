@@ -9,13 +9,11 @@
 
 1. [Giới thiệu Dataset](#1-giới-thiệu-dataset)
 2. [Cấu trúc thư mục](#2-cấu-trúc-thư-mục)
-3. [Pipeline 3 bước](#3-pipeline-3-bước)
-   - [Bước 1 — Data Cleaning](#bước-1--data-cleaning--standardization)
-   - [Bước 2 — Training](#bước-2--training)
-   - [Bước 3 — Inference & Crop](#bước-3--inference--crop)
+3. [Research Workflow](#3-research-workflow)
 4. [Yêu cầu môi trường](#4-yêu-cầu-môi-trường)
-5. [Kết quả mong đợi](#5-kết-quả-mong-đợi)
-6. [Bước tiếp theo — OCR](#6-bước-tiếp-theo--ocr)
+5. [Kết quả E0 Baseline](#5-kết-quả-e0-baseline)
+6. [Bảng Experiments](#6-bảng-experiments)
+7. [Bước tiếp theo — OCR](#7-bước-tiếp-theo--ocr)
 
 ---
 
@@ -27,8 +25,9 @@
 | **Nguồn**         | [Roboflow Universe](https://universe.roboflow.com/wattwise/electric-meter-wzeeg-zk5fd) |
 | **License**       | CC BY 4.0                                                                |
 | **Tổng ảnh**      | 712 ảnh                                                                  |
-| **Format nhãn**   | YOLOv8 (polygon / bbox)                                                  |
+| **Format nhãn**   | YOLOv8 (polygon → bbox, single class)                                    |
 | **Số class**      | 1 — `display` (vùng hiển thị số đồng hồ)                                |
+| **Thương hiệu**   | Genus, MicroTech Industries, General Electric, Bentex                    |
 
 ### Phân chia tập dữ liệu
 
@@ -39,12 +38,9 @@
 | **test**  |    26  |  4 %  |
 | **Tổng**  |   712  | 100 % |
 
-### Vấn đề tên file gốc
-
-File ảnh và nhãn có tên lộn xộn từ Roboflow (ví dụ:
-`10_JPG.rf.944bef43184d2204dfd2188f06283f64.jpg`).
-Dù model vẫn học được, khi debug cực kỳ khó tra cứu.
-→ **Bước 1** của pipeline giải quyết vấn đề này.
+> **Lưu ý:** Data raw tại `data/raw/` **không bao giờ bị ghi đè**.
+> Script `prepare_data.py` chuẩn hóa polygon → bbox và remap class ID → 0,
+> output tại `data/processed/`.
 
 ---
 
@@ -53,129 +49,93 @@ Dù model vẫn học được, khi debug cực kỳ khó tra cứu.
 ```
 industrial_meter_ocr/
 │
-├── Data/
-│   ├── data.yaml               ← Cấu hình dataset cho YOLO (nc=1)
-│   ├── train/
-│   │   ├── images/             ← Ảnh training (621 files)
-│   │   └── labels/             ← Nhãn tương ứng (.txt)
-│   ├── valid/
-│   │   ├── images/             ← Ảnh validation (65 files)
-│   │   └── labels/
-│   └── test/
-│       ├── images/             ← Ảnh test (26 files)
-│       └── labels/
+├── data/
+│   ├── raw/                    ← Data gốc từ Roboflow (không sửa)
+│   └── processed/
+│       ├── data.yaml           ← Cấu hình dataset cho YOLO (nc=1)
+│       ├── train/images+labels/
+│       ├── valid/images+labels/
+│       └── test/images+labels/
 │
-├── 1_clean_data.py             ← Bước 1: Chuẩn hóa tên file + remap class ID
-├── 2_train_yolo.py             ← Bước 2: Training YOLOv8 single-class
-├── 3_inference_test.py         ← Bước 3: Inference + crop OCR
+├── configs/                    ← YAML config cho từng experiment
+│   ├── e0_baseline.yaml
+│   ├── e1_model_capacity.yaml
+│   ├── e2_single_vs_multi.yaml
+│   ├── e3_augmentation.yaml
+│   └── e4_orientation.yaml
+│
+├── src/
+│   ├── data/
+│   │   ├── prepare_data.py     ← Raw → processed (polygon→bbox, remap class)
+│   │   └── analyze_data.py     ← Thống kê dataset
+│   ├── training/
+│   │   ├── train.py            ← Chạy từng experiment
+│   │   └── run_seeds.py        ← Multi-seed cho statistical comparison
+│   ├── evaluation/
+│   │   ├── evaluate.py         ← So sánh metrics giữa experiments
+│   │   └── error_analysis.py   ← Phân tích FP/FN với visualization
+│   └── utils/
+│       └── helpers.py          ← Shared utilities
 │
 ├── runs/
-│   └── detect/
-│       └── meter_model/
-│           ├── weights/
-│           │   ├── best.pt     ← Model tốt nhất (dùng cho inference)
-│           │   └── last.pt
-│           └── results.png     ← Biểu đồ loss & mAP
+│   └── e0_baseline/
+│       └── e0_baseline_seed42_20260226_134709/
+│           ├── weights/best.pt ← Model tốt nhất
+│           ├── evaluation_metrics.yaml
+│           ├── error_analysis/ ← Ảnh debug FP/FN
+│           └── results.csv
 │
-└── crops/                      ← Ảnh crop đầu ra (input cho OCR)
+├── docs/
+│   ├── plan.md                 ← Research plan & experimental design
+│   └── Summary.md              ← Tổng hợp phân tích về dataset
+│
+├── requirements.txt
+└── yolov8n.pt                  ← Pretrained weights (base model)
 ```
 
 ---
 
-## 3. Pipeline 3 bước
+## 3. Research Workflow
 
-### Bước 1 — Data Cleaning & Standardization
-
-**Script:** [1_clean_data.py](1_clean_data.py)
-
-Thực hiện 2 việc tự động:
-
-**1a. Đổi tên file** sang định dạng chuẩn:
-
-```
-Trước:  10_JPG.rf.944bef43184d2204dfd2188f06283f64.jpg / .txt
-Sau:    train_0000.jpg  ←→  train_0000.txt
-        train_0001.jpg  ←→  train_0001.txt
-        ...
-        valid_0000.jpg  ←→  valid_0000.txt
-        test_0000.jpg   ←→  test_0000.txt
-```
-
-**1b. Remap class ID → 0** trong mọi file nhãn:
-
-Dataset gốc dùng nhiều class ID khác nhau. Vì `data.yaml` khai báo `nc: 1`,
-mọi annotation phải là class `0` (`display`). Script tự động fix việc này.
-
-**Quy tắc an toàn của script:**
-- Ảnh không có file nhãn tương ứng → **bỏ qua**, in cảnh báo.
-- Luôn chạy `--dry-run` trước để xem preview.
-- Thứ tự đổi tên theo `sorted()` → nhất quán mỗi lần chạy.
+### Bước 1 — Chuẩn bị data
 
 ```bash
-# Xem trước (không sửa gì)
-python 1_clean_data.py --dry-run
+# Xử lý raw → processed (single class, polygon → bbox)
+python -m src.data.prepare_data
 
-# Thực sự chuẩn hóa
-python 1_clean_data.py
+# Xem thống kê dataset
+python -m src.data.analyze_data
 ```
 
----
-
-### Bước 2 — Training
-
-**Script:** [2_train_yolo.py](2_train_yolo.py)
+### Bước 2 — Chạy experiments
 
 ```bash
-python 2_train_yolo.py
+# E0: Baseline (ĐÃ HOÀN THÀNH)
+python -m src.training.train --experiment e0_baseline
+
+# E1: So sánh kích thước model
+python -m src.training.train -e e1_model_capacity -m yolov8n.pt
+python -m src.training.train -e e1_model_capacity -m yolov8s.pt
+python -m src.training.train -e e1_model_capacity -m yolov8m.pt
+
+# E3: Augmentation mạnh hơn
+python -m src.training.train --experiment e3_augmentation
+
+# E4: Orientation robustness (flipud + rotation)
+python -m src.training.train --experiment e4_orientation
+
+# Chạy multi-seed (3 seeds) để kiểm tra statistical significance
+python -m src.training.run_seeds --experiment e0_baseline --seeds 42 123 456
 ```
 
-| Tham số        | Giá trị      | Lý do chọn                                          |
-|----------------|--------------|-----------------------------------------------------|
-| `model`        | `yolov8n.pt` | Nano — nhanh, nhẹ, phù hợp PoC (E0 Baseline)       |
-| `epochs`       | 100          | E0 Baseline theo plan.md                            |
-| `imgsz`        | 640          | Chuẩn YOLO, cân bằng tốc độ và độ chính xác        |
-| `batch`        | 16           | Giảm xuống 8 nếu Out-of-Memory                      |
-| `single_cls`   | `True`       | Gộp mọi class thành 1 — tránh lỗi label index      |
-| `optimizer`    | AdamW        | Hội tụ nhanh hơn SGD trên dataset nhỏ              |
-
-**Dấu hiệu training thành công** (xem `runs/detect/meter_model/results.png`):
-
-```
-box_loss   ↓↓↓  (giảm đều, không dao động mạnh)
-cls_loss   ↓↓↓
-mAP50      ↑↑↑  (tăng, tiệm cận ≥ 0.85+)
-```
-
-Thời gian ước tính: **10–15 phút** (GPU) / **45–60 phút** (CPU).
-
----
-
-### Bước 3 — Inference & Crop
-
-**Script:** [3_inference_test.py](3_inference_test.py)
+### Bước 3 — Đánh giá
 
 ```bash
-# Test nhanh 1 ảnh đầu tiên trong tập test
-python 3_inference_test.py
+# So sánh tất cả experiments
+python -m src.evaluation.evaluate
 
-# Chỉ định ảnh cụ thể
-python 3_inference_test.py --img ./Data/test/images/test_0005.jpg
-
-# Batch toàn bộ tập test
-python 3_inference_test.py --batch
-```
-
-Script thực hiện 3 việc cho mỗi ảnh:
-
-1. **Vẽ bounding box** màu xanh lá lên ảnh gốc.
-2. **Cắt crop** theo bounding box → lưu vào `crops/`.
-3. **Lưu ảnh annotated** để kiểm tra trực quan.
-
-```
-Input:  Data/test/images/test_0000.jpg
-Output:
-  crops/test_0000_crop_00.jpg    ← Crop sẵn sàng cho OCR
-  crops/test_0000_annotated.jpg  ← Ảnh debug có khung bbox
+# Phân tích lỗi (FP/FN) của một run cụ thể
+python -m src.evaluation.error_analysis --run-dir runs/e0_baseline/e0_baseline_seed42_20260226_134709
 ```
 
 ---
@@ -183,7 +143,7 @@ Output:
 ## 4. Yêu cầu môi trường
 
 ```bash
-pip install ultralytics opencv-python
+pip install -r requirements.txt
 ```
 
 | Package         | Phiên bản tối thiểu | Ghi chú                         |
@@ -191,31 +151,77 @@ pip install ultralytics opencv-python
 | `ultralytics`   | ≥ 8.0               | Bao gồm YOLOv8 support          |
 | `opencv-python` | ≥ 4.5               | Đọc/ghi/vẽ ảnh                 |
 | `torch`         | ≥ 2.0               | Tự cài khi install ultralytics  |
+| `pyyaml`        | ≥ 6.0               | Đọc/ghi config và metrics       |
 | Python          | ≥ 3.9               |                                 |
 
-**Môi trường đề xuất:** WSL2 Ubuntu trên Windows với CUDA GPU.
+**Môi trường đề xuất:** WSL2 Ubuntu trên Windows.
 
 ---
 
-## 5. Kết quả mong đợi
+## 5. Kết quả E0 Baseline
 
-Sau khi hoàn thành pipeline, thư mục `crops/` chứa các ảnh như:
+**Run:** `e0_baseline_seed42_20260226_134709`
+
+### Cấu hình training
+
+| Tham số        | Giá trị      | Ghi chú                                             |
+|----------------|--------------|-----------------------------------------------------|
+| `model`        | `yolov8n.pt` | Nano — nhẹ, phù hợp baseline                       |
+| `epochs`       | 100          | Kết thúc đủ 100 epoch                              |
+| `imgsz`        | 640          | Chuẩn YOLO                                         |
+| `batch`        | 16           |                                                     |
+| `patience`     | 20           | Early stopping nếu không cải thiện                 |
+| `single_cls`   | `True`       | Gộp mọi class thành 1                              |
+| `optimizer`    | `auto`       | YOLO tự chọn (AdamW)                               |
+| `seed`         | 42           |                                                     |
+| `device`       | CPU          |                                                     |
+
+### Metrics
+
+| Split    | mAP50  | mAP50-95 | Precision | Recall |
+|----------|-------:|----------:|----------:|-------:|
+| **val**  | 0.884  | 0.6025    | 0.8555    | 0.8433 |
+| **test** | 0.891  | 0.6377    | 0.9132    | 0.9048 |
+
+- **Inference time:** ~38 ms/image (CPU)
+
+### Error Analysis (tập test — 26 ảnh)
+
+| Metric                         | Giá trị |
+|-------------------------------|--------:|
+| Total images                  | 26      |
+| Perfect predictions           | 17      |
+| True Positives (TP)           | 57      |
+| False Positives (FP)          | 10      |
+| False Negatives (FN)          | 6       |
+| F1-score (conf=0.25, IoU=0.5) | 0.877   |
+
+**FP chủ yếu:** logo/nhãn hiệu bị nhận nhầm là màn hình (ảnh 10, 32, Mtr32, Mtr35, Mtr40, img17).  
+**FN chủ yếu:** màn hình bị lật ngược hoặc bị che khuất (ảnh 75, img12, img37).
+
+### Model weights
 
 ```
-crops/
-├── test_0000_crop_00.jpg     ← Vùng màn hình đồng hồ đã cắt
-├── test_0000_annotated.jpg   ← Ảnh gốc có khung bbox
-├── test_0001_crop_00.jpg
-└── ...
+runs/e0_baseline/e0_baseline_seed42_20260226_134709/weights/best.pt
 ```
-
-`test_0000_crop_00.jpg` sẽ là ảnh chỉ chứa **màn hình số của đồng hồ điện** — input lý tưởng cho bước OCR.
 
 ---
 
-## 6. Bước tiếp theo — OCR
+## 6. Bảng Experiments
 
-Đưa ảnh crop vào một trong hai thư viện OCR sau để đọc ra chỉ số:
+| ID  | Config                    | Câu hỏi nghiên cứu                        | Trạng thái         |
+|-----|---------------------------|-------------------------------------------|--------------------|
+| E0  | `e0_baseline.yaml`        | YOLOv8n baseline — mốc so sánh           | ✅ Hoàn thành       |
+| E1  | `e1_model_capacity.yaml`  | n vs s vs m — trade-off accuracy/speed   | ⏳ Chưa chạy        |
+| E2  | `e2_single_vs_multi.yaml` | single_cls vs multi-class                 | ⏳ Chưa chạy        |
+| E3  | `e3_augmentation.yaml`    | Lighting robustness (HSV/rotation/mixup)  | ⏳ Chưa chạy        |
+| E4  | `e4_orientation.yaml`     | Rotation aug đủ không, hay cần OBB?      | ⏳ Chưa chạy        |
+
+---
+
+## 7. Bước tiếp theo — OCR
+
+Sau khi có `best.pt`, chạy inference để crop vùng màn hình, sau đó đưa qua OCR:
 
 ```python
 # Ví dụ với PaddleOCR

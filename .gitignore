@@ -1,1 +1,27 @@
-Data/
+data/
+tests/
+.env
+docs/
+
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# Project outputs (large files)
+data/processed/
+runs/
+crops/
+
+# Keep raw data out of git (too large)
+data/raw/train/images/
+data/raw/valid/images/
+data/raw/test/images/
+
+*.__init__.py
+yolov8n.pt
+
+README.md

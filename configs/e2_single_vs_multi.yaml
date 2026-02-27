@@ -1,0 +1,30 @@
+# E2 - Single Class vs Multi Class
+# ===================================
+# Compare single_cls=True vs keeping all original classes.
+# Requires running prepare_data with --mode multi_cls first.
+
+experiment:
+  name: "E2 - Single vs Multi Class"
+  description: >
+    Test if single-class detection learns faster and is more stable
+    than multi-class detection.
+  hypothesis: "Single class will converge faster with less overfitting"
+
+training:
+  model: "yolov8n.pt"
+  epochs: 100
+  imgsz: 640
+  batch: 16
+  patience: 20
+  single_cls: false  # Set to false for multi-class experiment
+  seed: 42
+
+augmentation:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5
+  fliplr: 0.5
+  mosaic: 1.0

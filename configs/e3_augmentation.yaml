@@ -1,0 +1,71 @@
+# E3 - Data Augmentation Study: Lighting Robustness
+# ====================================================
+# Test different augmentation strategies for varying lighting conditions:
+#   E3a: No augmentation
+#   E3b: Brightness/contrast augmentation (strong HSV)
+#   E3c: + Random rotation ±15°
+#   E3d: + Motion blur (via mosaic/mixup)
+
+experiment:
+  name: "E3 - Augmentation Study"
+  description: >
+    Test augmentation impact on robustness across LCD types:
+    green backlight, orange backlight, no backlight, mechanical.
+  hypothesis: "HSV augmentation will improve performance on dark/bright images"
+
+training:
+  model: "yolov8n.pt"
+  epochs: 100
+  imgsz: 640
+  batch: 16
+  patience: 20
+  single_cls: true
+  seed: 42
+
+# ── E3a: No augmentation ────────────────────
+# Uncomment this section and comment others to run E3a
+# augmentation:
+#   hsv_h: 0.0
+#   hsv_s: 0.0
+#   hsv_v: 0.0
+#   degrees: 0.0
+#   translate: 0.0
+#   scale: 0.0
+#   fliplr: 0.0
+#   mosaic: 0.0
+#   mixup: 0.0
+
+# ── E3b: Strong brightness/contrast ─────────
+augmentation:
+  hsv_h: 0.02
+  hsv_s: 0.8
+  hsv_v: 0.6
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5
+  fliplr: 0.5
+  mosaic: 1.0
+  mixup: 0.0
+
+# ── E3c: + Rotation ±15° ────────────────────
+# augmentation:
+#   hsv_h: 0.02
+#   hsv_s: 0.8
+#   hsv_v: 0.6
+#   degrees: 15.0
+#   translate: 0.1
+#   scale: 0.5
+#   fliplr: 0.5
+#   mosaic: 1.0
+
+# ── E3d: + Mixup (simulates overlay/blur) ───
+# augmentation:
+#   hsv_h: 0.02
+#   hsv_s: 0.8
+#   hsv_v: 0.6
+#   degrees: 15.0
+#   translate: 0.1
+#   scale: 0.5
+#   fliplr: 0.5
+#   mosaic: 1.0
+#   mixup: 0.15
